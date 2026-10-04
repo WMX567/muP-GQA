@@ -50,7 +50,7 @@ def main():
     args = p.parse_args()
     rows = summarize(args.results_dir)
     if not rows:
-        p.error('No completed v2 runs found; legacy CSVs are not mixed with the corrected protocol.')
+        p.error('No completed v2 runs found.')
     args.output.parent.mkdir(parents=True, exist_ok=True)
     summary = args.output.with_suffix('.npy')
     integer_fields = {'width', 'max_iters', 'n_head', 'n_kv_head', 'n_seeds'}

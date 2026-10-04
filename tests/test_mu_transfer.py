@@ -16,8 +16,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from mu_transfer import get_args, normalized_config
-from run_mu_transfer import legacy_audit, status, training_args
-from mu_transfer_io import load_metrics, metrics_array, save_array, load_legacy
+from run_mu_transfer import status, training_args
+from mu_transfer_io import load_metrics, metrics_array, save_array
 
 
 class SweepTests(unittest.TestCase):
@@ -27,14 +27,6 @@ class SweepTests(unittest.TestCase):
         self.assertFalse(args.compile)
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
             get_args(['--n_embd', '513'])
-
-    def test_legacy_grid_complete(self):
-        rows = legacy_audit(ROOT/'mup')
-        self.assertEqual(len(rows), 72)
-        self.assertTrue(all(row['status']=='legacy_complete' for row in rows))
-        self.assertTrue(all(Path(row['path']).suffix=='.npy' for row in rows))
-        self.assertFalse(list((ROOT/'mup').glob('*.csv')))
-        self.assertEqual(sum(len(load_legacy(Path(row['path']))) for row in rows),17946)
 
     def test_completion_requires_matching_config_and_finite_final_evaluation(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -57,7 +49,7 @@ class SweepTests(unittest.TestCase):
             (out/'config.json').write_text(json.dumps(expected))
             self.assertEqual(status(task), 'config_mismatch')
 
-    def test_numpy_metrics_roundtrip_and_csv_resume(self):
+    def test_numpy_metrics_roundtrip(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'metrics.npy'
             rows=[dict(step=1, train_loss=2., val_loss=None, lr=.001, tokens=2**55+1, seconds=.2)]
@@ -66,8 +58,6 @@ class SweepTests(unittest.TestCase):
             self.assertEqual(stored['tokens'][0], 2**55+1)
             self.assertTrue(np.isnan(stored['val_loss'][0]))
             self.assertEqual(stored.dtype['step'].kind, 'i')
-            path.unlink()
-            path.with_suffix('.csv').write_text('step,train_loss,val_loss,lr,tokens,seconds\n1,2.,,.001,32,.2\n')
             loaded=load_metrics(path)
             self.assertEqual(loaded['step'][0], 1)
             self.assertTrue(np.isnan(loaded['val_loss'][0]))
@@ -89,7 +79,6 @@ class SweepTests(unittest.TestCase):
             self.assertEqual(summary['n_seeds'][0],3)
             self.assertAlmostEqual(summary['val_loss'][0],2.)
             self.assertAlmostEqual(summary['val_std'][0],1.)
-            self.assertFalse((root/'summary.csv').exists())
 
     def test_default_manifest_and_slurm_script(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -120,7 +109,7 @@ class SweepTests(unittest.TestCase):
         attn=types.SimpleNamespace(c_q=types.SimpleNamespace(weight='q'),c_kv=types.SimpleNamespace(weight=Sliceable()),n_kv_reps=2)
         model=types.SimpleNamespace(config=types.SimpleNamespace(mup_multiplier=4,n_embd=2048,n_head=16,n_kv_head=8,init_std=.02),
                                    impl=mengxi_impl,transformer=types.SimpleNamespace(h=[types.SimpleNamespace(attn=attn)]),
-                                   _get_weight_groups=lambda kv: (['emb'],['q','hidden'],['kv'],['out'],[],[],[],[]))
+                                   _get_weight_groups=lambda: (['emb'],['q','hidden'],['kv'],['out']))
         namespace['_init_weights'](model,None)
         self.assertAlmostEqual(recorded['q'], .01)
         self.assertAlmostEqual(recorded['hidden'], .01)
@@ -137,13 +126,11 @@ class Sliceable:
 @unittest.skipUnless(importlib.util.find_spec('torch'), 'PyTorch is not installed')
 class TrainingTests(unittest.TestCase):
     def test_tiny_cpu_mup_sp_and_resume(self):
-        import numpy as np
-        import torch
         from model_moe_kyle import GPT,GPTConfig
         from mup_implementations import mengxi_impl
         model=GPT(GPTConfig(n_layer=1,n_head=2,n_kv_head=1,n_embd=16,block_size=8,vocab_size=16,
                             bias=False,mup=True,mup_multiplier=2,impl=mengxi_impl))
-        optimizer=model.configure_optimizers(.2,.001,(.9,.95),1e-8,'cpu')
+        optimizer=model.configure_optimizers(.2,.001,(.9,.95),1e-8)
         for group in optimizer.param_groups:
             if group['weight_decay']:
                 self.assertAlmostEqual(group['weight_decay'],.2*group['wd_scale'])
@@ -163,7 +150,6 @@ class TrainingTests(unittest.TestCase):
                 subprocess.run(command,check=True,capture_output=True)
                 subprocess.run(command+['--resume'],check=True,capture_output=True)
                 rows=load_metrics(out/'metrics.npy')
-                self.assertFalse((out/'metrics.csv').exists())
                 self.assertEqual(int(rows[-1]['step']),2)
                 self.assertEqual(int(rows[-1]['tokens']),32)
                 self.assertEqual(len(rows),1)

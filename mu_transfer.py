@@ -76,7 +76,7 @@ def main():
     if int(os.environ.get('WORLD_SIZE', '1')) != 1:
         raise ValueError('Use one GPU per experiment; the sweep runs independent SLURM jobs.')
     import numpy as np
-    from mu_transfer_io import has_metrics, load_metrics, metrics_array, save_array
+    from mu_transfer_io import load_metrics, metrics_array, save_array
     import torch
     from model_moe_kyle import GPT, GPTConfig
     from mup_implementations import impl_dict
@@ -96,7 +96,7 @@ def main():
     config_path = out / 'config.json'
     if config_path.exists() and json.loads(config_path.read_text()) != config:
         raise ValueError('Output directory belongs to a different configuration; use a new out_dir.')
-    if has_metrics(out / 'metrics.npy') and not args.resume:
+    if (out / 'metrics.npy').exists() and not args.resume:
         raise ValueError('Results already exist; use --resume or a new out_dir.')
     write_json(config_path, config)
     random.seed(args.seed)
@@ -127,9 +127,9 @@ def main():
                           n_embd=args.n_embd, block_size=args.block_size, vocab_size=vocab_size,
                           dropout=args.dropout, bias=False, init_std=args.init_std,
                           mup=args.param_type == 'mup', mup_multiplier=args.n_embd / args.base_width if args.param_type == 'mup' else 1.0,
-                          impl=impl_dict[impl_name], normalization='LayerNorm')).to(device)
+                          impl=impl_dict[impl_name])).to(device)
     optimizer = model.configure_optimizers(args.weight_decay, args.learning_rate,
-                                           (args.beta1, args.beta2), args.eps, device.type)
+                                           (args.beta1, args.beta2), args.eps)
     scaler = torch.amp.GradScaler(device.type, enabled=device.type == 'cuda' and args.dtype == 'float16')
     start = 0
     checkpoint = out / 'checkpoint.pt'
@@ -145,7 +145,7 @@ def main():
         torch.set_rng_state(state['torch_rng'].cpu())
         if device.type == 'cuda':
             torch.cuda.set_rng_state_all([x.cpu() for x in state['cuda_rng']])
-    elif args.resume and has_metrics(out / 'metrics.npy'):
+    elif args.resume and (out / 'metrics.npy').exists():
         raise ValueError('Cannot resume metrics without a checkpoint')
     training_model = torch.compile(model) if args.compile else model
     def evaluate():
@@ -167,7 +167,7 @@ def main():
         temp.replace(checkpoint)
     metrics_path = out / 'metrics.npy'
     rows = []
-    if has_metrics(metrics_path):
+    if metrics_path.exists():
         saved = load_metrics(metrics_path)
         rows = [{name: row[name].item() for name in saved.dtype.names}
                 for row in saved if row['step'] <= start]

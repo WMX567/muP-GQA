@@ -1,6 +1,6 @@
 # GQA-μP
 
-GQA-μP with Mengxi μP learning-rate transfer experiments with grouped-query attention (GQA). The main entry point is [run_mu_transfer.py](run_mu_transfer.py); Kyle's implementation and earlier GQA/MoE experiments are listed under [References](#references).
+GQA-μP with Mengxi μP learning-rate transfer experiments with grouped-query attention (GQA). The main entry point is [run_mu_transfer.py](run_mu_transfer.py).
 
 ## Setup
 
@@ -62,14 +62,11 @@ python mu_transfer_plot.py
 python mu_transfer_plot.py --summary-only
 ```
 
-Plots summarize final validation loss across seeds, with sample standard deviation as error bars. Partial runs and legacy data are excluded. Per-run `mu_transfer_results/v2/<run>/metrics.npy` contains the named fields `step`, `train_loss`, `val_loss`, `lr`, `tokens`, and `seconds`; load it with `np.load(path, allow_pickle=False)`. Unmeasured validation loss is `NaN`. The aggregate summary is `mu_transfer_results/mu_transfer_v2.npy`.
+Plots summarize final validation loss across seeds, with sample standard deviation as error bars. Partial runs are excluded. Per-run `mu_transfer_results/v2/<run>/metrics.npy` contains the named fields `step`, `train_loss`, `val_loss`, `lr`, `tokens`, and `seconds`; load it with `np.load(path, allow_pickle=False)`. Unmeasured validation loss is `NaN`. The aggregate summary is `mu_transfer_results/mu_transfer_v2.npy`.
 
-The 72 legacy arrays in `mup/` are retained for reference. Their protocol counted microbatches, used shifted step indices and squared weight decay, omitted validation loss, and did not apply the intended Q/K/V initialization. Protocol v2 corrects these issues; legacy logs cannot substitute for v2 results. In v2, `max_iters` counts optimizer updates.
+In protocol v2, `max_iters` counts optimizer updates. Data, results, and checkpoints are not stored in the repository.
 
 ## References
 
 - **Kyle's μP implementation:** `kyle_impl` in [mup_implementations.py](mup_implementations.py), named “xLLM (muP) Kyle Candidate KV Scaling.” Retained as a comparison implementation; select it with `--impl kyle_impl`.
-- **Kyle-related GQA/MoE model and training pipeline:** [model_moe_kyle.py](model_moe_kyle.py), [slimpj_train_2.py](slimpj_train_2.py), and [paramaterized_train.py](paramaterized_train.py).
-- **Earlier GQA/MoE ablations:** [experiment configs](mup_paper_experiments/configs) and [SLURM launcher](mup_paper_experiments/build_orchastrator.py). Requires WandB setup and cluster-specific partition/QoS settings. Example: `python mup_paper_experiments/build_orchastrator.py --config_generator_file mup_paper_experiments/configs/depth_only.py --max_concurrent 4`. Logs default to `mup_paper_experiments/slurm_logs`; `--dry_run` selects the test configuration but still submits SLURM jobs.
-- **Original nanoGPT workflows:** [train.py](train.py), [sample.py](sample.py), and [configs](config) provide standard training, fine-tuning, and sampling entry points.
 - **Upstream:** [Andrej Karpathy's nanoGPT](https://github.com/karpathy/nanoGPT).

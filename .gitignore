@@ -1,0 +1,9 @@
+# Data and experiment outputs are kept out of the repository.
+*.npy
+*.csv
+*.png
+*.pt
+data/
+mu_transfer_results/
+mu_transfer_jobs/
+__pycache__/

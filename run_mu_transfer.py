@@ -12,7 +12,7 @@ import sys
 import time
 
 from mu_transfer import PROTOCOL_VERSION, get_args, normalized_config
-from mu_transfer_io import has_metrics, load_metrics, load_legacy
+from mu_transfer_io import load_metrics
 
 ROOT = Path(__file__).resolve().parent
 WIDTH_STEPS = {512: 1160, 768: 1715, 1024: 2356, 2048: 4754}
@@ -71,26 +71,6 @@ def status(task):
     return 'incomplete'
 
 
-def legacy_audit(directory):
-    rows = []
-    for width, lr, seed in itertools.product(WIDTH_STEPS, LEARNING_RATES, [0, 1, 2]):
-        steps = WIDTH_STEPS[width]
-        wd = 1 / steps / lr / 0.035
-        path = directory/f'width{width}_lr{lr:.5f}_wd{wd:.5f}_seed{seed}.npy'
-        if not path.exists() and path.with_suffix('.csv').exists():
-            path = path.with_suffix('.csv')
-        state = 'missing'
-        if path.exists():
-            try:
-                values = load_legacy(path)
-                expected_rows = steps // 10
-                state = 'legacy_complete' if len(values) == expected_rows and all(math.isfinite(float(x['loss'])) for x in values) else 'legacy_incomplete'
-            except (OSError, ValueError, KeyError, EOFError):
-                state = 'legacy_invalid'
-        rows.append(dict(width=width, lr=lr, seed=seed, status=state, path=str(path)))
-    return rows
-
-
 def execute(task):
     out = Path(task['out_dir'])
     out.mkdir(parents=True, exist_ok=True)
@@ -109,12 +89,9 @@ def execute(task):
         command = [sys.executable, str(ROOT/'mu_transfer.py'), *training_args(task['config'], out)]
         if (out/'checkpoint.pt').exists():
             command.append('--resume')
-        elif has_metrics(out/'metrics.npy'):
+        elif (out/'metrics.npy').exists():
             # Preserve partial logs from failures before the first checkpoint.
-            for suffix in ('.npy', '.csv'):
-                path = out/f'metrics{suffix}'
-                if path.exists():
-                    path.rename(out/f'metrics_uncheckpointed_{time.time_ns()}{suffix}')
+            (out/'metrics.npy').rename(out/f'metrics_uncheckpointed_{time.time_ns()}.npy')
         print(shlex.join(command), flush=True)
         with (out/'run.log').open('a') as log:
             subprocess.run(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -163,7 +140,6 @@ def main():
     p.add_argument('--mode', choices=['report', 'generate', 'local', 'submit', 'task'], default='report')
     p.add_argument('--results-dir', type=Path, default=ROOT/'mu_transfer_results'/'v2')
     p.add_argument('--scripts-dir', type=Path, default=ROOT/'mu_transfer_jobs')
-    p.add_argument('--legacy-dir', type=Path, default=ROOT/'mup')
     p.add_argument('--widths', nargs='+', type=int, choices=list(WIDTH_STEPS), default=list(WIDTH_STEPS))
     p.add_argument('--learning-rates', nargs='+', type=float, default=LEARNING_RATES)
     p.add_argument('--seeds', nargs='+', type=int, default=[0, 1, 2])
@@ -204,12 +180,9 @@ def main():
         get_args(training_args(task['config'], task['out_dir']))
         task['status'] = status(task)
     pending = [t for t in all_tasks if t['status'] != 'complete']
-    legacy = legacy_audit(args.legacy_dir)
-    legacy_good = sum(t['status'] == 'legacy_complete' for t in legacy)
-    print(f'Legacy grid: {legacy_good}/{len(legacy)} logs complete under the old protocol.')
     print(f'Protocol v{PROTOCOL_VERSION}: {len(all_tasks)-len(pending)}/{len(all_tasks)} complete; {len(pending)} pending.')
     args.scripts_dir.mkdir(parents=True, exist_ok=True)
-    (args.scripts_dir/'audit.json').write_text(json.dumps({'protocol_version': PROTOCOL_VERSION, 'legacy': legacy, 'tasks': all_tasks},indent=2)+'\n')
+    (args.scripts_dir/'audit.json').write_text(json.dumps({'protocol_version': PROTOCOL_VERSION, 'tasks': all_tasks},indent=2)+'\n')
     if args.mode == 'report':
         for param, wd in itertools.product(args.param_types, args.wd_modes):
             count = sum(t['config']['param_type']==param and t['wd_mode']==wd for t in pending)
